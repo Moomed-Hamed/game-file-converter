@@ -70,7 +70,7 @@ void convert_collada_anim(const char* path, const char* binary_name, const char*
 	int num_dae_positions = -1, num_dae_normals = -1, num_dae_vertices = -1, num_dae_faces = -1;
 	vec3*  dae_positions = NULL;
 	vec3*  dae_normals   = NULL;
-	ivec2* dae_vertices  = NULL;
+	ivec2* dae_vertices  = NULL; // vertex = index of position & normal
 
 	// Library Geometries : positions, normals, faces, vertices
 	{
@@ -85,7 +85,8 @@ void convert_collada_anim(const char* path, const char* binary_name, const char*
 
 		file.seek_tag("p"); file.prev_line(); file.prev_line();
 
-		// there could be extra info packed in, (stride - 2) = how many values to skip per read 
+		// there could be extra info packed in, (stride - 2) = how many values to skip per read
+		// we use the offset from the <input> tag before the <p> tag to figure out the stride
 		int stride = -1;
 		sscanf(file.read_ptr, " %*s %*s %*s %*[a-z=\"] %d", &stride); ++stride;
 
@@ -234,32 +235,101 @@ void convert_collada_anim(const char* path, const char* binary_name, const char*
 		}
 
 		// print the unsorted joint heirarchy for verification
-		//for (int i = 0; i < num_bones; i++) print("%-12s : %-12s : %2d\n", bone_names[i], bone_names[parent_pos[i]], bone_depths[i]);
-
+		out(' ');
+		for (int i = 0; i < num_bones; i++) print("%2d : %-12s : %2d : %-12s : %2d\n", i, bone_names[i], parent_pos[i], bone_names[parent_pos[i]], bone_depths[i]);
 		// now we have all the data needed to construct the final bone array
 		// the first step is to sort it by depth
 
-		// new_index[i] = index of bone_names[i] in the sorted array
-		int* new_index = (int*)malloc(num_bones * sizeof(int));
-
-		new_index[0] = 0; // root bone
-
-		int index = 1;
-		int current_depth = 1; // for every bone of this depth
-		for (int i = 1; i < num_bones; i++)
+		struct Bone_Node // used for sorting bones by depth
 		{
-			for (int j = 1; j < num_bones; j++)
-			{
-				if (bone_depths[j] == current_depth) // if it has the correct depth
-				{
-					new_index[index++] = j; // put in next available position in new array
-				}
-			}
-			current_depth++;
+			int depth;
+			char* name, *parent_name;
+			mat4 local_transform, inv_local_transform;
+		};
+
+		Bone_Node* nodes = new Bone_Node[num_bones];
+		memset(nodes, 0, sizeof(Bone_Node) * num_bones);
+
+		for (int i = 0; i < num_bones; i++)
+		{
+			nodes[i].depth = bone_depths[i];
+			nodes[i].name  = bone_names[i];
+			nodes[i].parent_name = bone_names[parent_pos[i]];
+			nodes[i].local_transform = bone_local_transforms[i];
+			nodes[i].inv_local_transform = bone_inv_local_transforms[i];
 		}
 
-		// print the sorted joint heirarchy for verification
-		for (int i = 0; i < num_bones; i++) print("%2d : %-12s : %-12s\n", bone_depths[new_index[i]], bone_names[new_index[i]], bone_names[parent_pos[new_index[i]]]);
+		out("\nbone nodes before sorting by depth");
+		for (int i = 0; i < num_bones; i++) print("%2d : %-12s : %-12s : %2d\n", i, nodes[i].name, nodes[i].parent_name, nodes[i].depth);
+
+		// shouldn't need these anymore
+		free(bone_depths);
+		free(bone_local_transforms);
+		free(bone_inv_local_transforms);
+
+		// new_index[i] = index of bone_names[i] in the sorted array
+		int* new_index = (int*)calloc(num_bones, sizeof(int));
+
+		// sort bone nodes by depth
+		{
+			int index = 0;
+			for (int current_depth = 0; current_depth < num_bones; current_depth++)
+			{
+				for (int i = 0; i < num_bones; i++) // for each bone node
+				{
+					if (nodes[i].depth == current_depth) // if it has the correct depth
+					{
+						new_index[index++] = i; // put in next available position in new array
+					}
+				}
+			}
+		} //for (int i = 0; i < num_bones; i++) out(i << "-" << new_index[i]);
+
+		//out("\nbone nodes after sorting by depth");
+		//for (int i = 0; i < num_bones; i++) print("%2d : %-12s : %-12s : %2d\n", i, nodes[new_index[i]].name, nodes[new_index[i]].parent_name, nodes[new_index[i]].depth);
+
+		// now that the bones are sorted, we can assemble the final array!
+		bones = (Anim_Bone*)calloc(num_bones, sizeof(Anim_Bone));
+
+		// root bone
+		bones[0].name = nodes[0].name;
+		bones[0].local_transform = nodes[0].local_transform;
+		bones[0].inv_local_transform = nodes[0].inv_local_transform;
+		bones[0].parent_index = 0;
+
+		for (int i = 1; i < num_bones; i++) // rest of skeleton
+		{
+			bones[i].name = nodes[new_index[i]].name;
+			bones[i].local_transform = nodes[new_index[i]].local_transform;
+			bones[i].inv_local_transform = nodes[new_index[i]].inv_local_transform;
+			
+			for (int j = 0; j < i; j++)
+			{
+				if (strcmp(bones[j].name, nodes[new_index[i]].parent_name) == 0)
+				{
+					bones[i].parent_index = j;
+				}
+			}
+		}
+
+		// verify that bones have correct parents
+		print("\nafter assembling anim bones:\n");
+		for (int i = 0; i < num_bones; i++) print("%2d : %-12s : %2d : %-12s\n", i, bones[i].name, bones[i].parent_index, bones[bones[i].parent_index].name);
+
+		// i won't lie to you. i designed & wrote this code and still don't know how or why it works
+		// what i do know is that i need to do this additional step to get the correct bone references
+		// have fun figuring out why
+
+		for (int i = 0; i < num_bones; i++)
+		{
+			for (int j = 0; j < num_bones; j++)
+			{
+				if (strcmp(bones[i].name, bone_names[j]) == 0)
+				{
+					new_index[j] = i;
+				}
+			}
+		} //for (int i = 0; i < num_bones; i++) out(i << "-" << new_index[i]);
 
 		// we must also update all bone references
 		for (int i = 0; i < num_dae_positions; i++)
@@ -269,21 +339,14 @@ void convert_collada_anim(const char* path, const char* binary_name, const char*
 			bone_ids[i].z = new_index[bone_ids[i].z];
 		}
 
-		// now that the bones are sorted, we can assemble the final array!
-		bones = (Anim_Bone*)calloc(num_bones, sizeof(Anim_Bone));
-		for (int i = 0; i < num_bones; i++)
-		{
-			bones[i].name = bone_names[new_index[i]];
-			bones[i].parent_index = parent_pos[new_index[i]];
-			bones[i].local_transform = bone_local_transforms[new_index[i]];
-			bones[i].inv_local_transform = bone_inv_local_transforms[new_index[i]];
-		}
-
 		free(new_index);
+		free(nodes);
 		// TODO : FREE ALL UNNEEDED MEMORY!!!
 	}
 
 	Bone_Animation* animations = new Bone_Animation[num_bones];
+	for (int i = 0; i < num_bones; i++) animations[i] = {};
+
 	int num_animated_bones = 0;
 
 	// Library Animations : animation keyframes
@@ -310,12 +373,40 @@ void convert_collada_anim(const char* path, const char* binary_name, const char*
 			
 			free(times);
 
-			animations[num_animated_bones].framerate = framerate;
-			animations[num_animated_bones].keyframes = (mat4*)file.parse_float_array(&num_keyframes);
-			animations[num_animated_bones].num_keyframes = num_keyframes / 16;
-			num_animated_bones++;
+			bool found = false;
 
-			print("[%-12s] : %d keyframes at %dfps\n", name, num_keyframes / 16, framerate);
+			for (int i = 0; i < num_bones; i++)
+			{
+				if (strcmp(bones[i].name, name) == 0)
+				{
+					found = true;
+					animations[i].framerate = framerate;
+					animations[i].keyframes = (mat4*)file.parse_float_array(&num_keyframes);
+					animations[i].num_keyframes = num_keyframes / 16;
+					num_animated_bones++;
+					//print("%d : [%-12s] : %d keyframes at %dfps\n", i, name, num_keyframes / 16, framerate);
+				}
+			}
+			
+		} print("num animated bones: %d\n", num_animated_bones);
+	}
+
+	// bones that are not animated get local transforms as keyframes
+	for (int i = 0; i < num_bones; i++)
+	{
+		if (animations[i].keyframes == NULL)
+		{
+			print("%d, ", i);
+
+			animations[i].keyframes = new mat4[21];
+
+			for (int j = 0; j < 21; j++)
+			{
+				animations[i].keyframes[j] = bones[i].local_transform;
+			}
+
+			animations[i].framerate = 24;
+			animations[i].num_keyframes = 21;
 		}
 	}
 
@@ -329,7 +420,7 @@ void convert_collada_anim(const char* path, const char* binary_name, const char*
 	free_mesh_data(&final_mesh);
 
 	// save the animation keyframes
-	save_animation_data(animations, num_animated_bones, bones, num_bones, NULL, "animations.txt");
+	save_animation_data(animations, num_animated_bones, bones, num_bones, "test.anim", "animations.txt");
 
 	print("\nfinished converting '%s'\n", path);
 }

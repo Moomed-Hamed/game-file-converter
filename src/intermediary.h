@@ -4,9 +4,11 @@
 #include <stdio.h>
 #include <Windows.h>
 #include <fileapi.h>
+#include <iostream>
 
 #define print printf
 #define printvec(vec) printf("%f %f %f\n", vec.x, vec.y, vec.z)
+#define out(val) std::cout << ' ' << val << '\n'
 
 // WARNING : this
 #define MAX_BUFFER_SIZE (32768 * sizeof(vec3)) // sue me
@@ -318,16 +320,17 @@ void save_mesh_data(Mesh_Data_Anim data, const char* binary_name, const char* te
 {
 	if (binary_name)
 	{
-		//TODO : IMPLEMENT
-		//FILE* write = fopen(binary_name, "wb");
-		//
-		//fwrite(&data.num_vertices, sizeof(int), 1, write);
-		//fwrite(&data.num_indices, sizeof(int), 1, write);
-		//fwrite(data.positions, sizeof(vec3), data.num_vertices, write);
-		//fwrite(data.normals, sizeof(vec3), data.num_vertices, write);
-		//fwrite(data.indices, sizeof(int), data.num_indices, write);
-		//
-		//fclose(write);
+		FILE* write = fopen(binary_name, "wb");
+		
+		fwrite(&data.num_vertices, sizeof(int) , 1, write);
+		fwrite(&data.num_indices , sizeof(int) , 1, write);
+		fwrite(data.positions    , sizeof(vec3), data.num_vertices, write);
+		fwrite(data.normals      , sizeof(vec3), data.num_vertices, write);
+		fwrite(data.weights      , sizeof(vec3), data.num_vertices, write);
+		fwrite(data.bone_ids     , sizeof(ivec3), data.num_vertices, write);
+		fwrite(data.indices      , sizeof(int) , data.num_indices, write);
+		
+		fclose(write);
 	}
 
 	if (text_name)
@@ -342,7 +345,7 @@ void save_mesh_data(Mesh_Data_Anim data, const char* binary_name, const char* te
 			vec3 normal   = data.normals[i];
 			vec3 weight   = data.weights[i];
 			ivec3 bones   = data.bone_ids[i];
-			fprintf(write, "v %09f %09f %09f n %09f %09f %09f w %09f %09f %09f b %02d %02d %02d\n",
+			fprintf(write, "p %09f %09f %09f n %09f %09f %09f w %09f %09f %09f b %02d %02d %02d\n",
 				position.x, position.y, position.z, normal.x, normal.y, normal.z,
 				weight.x, weight.y, weight.z, bones.x, bones.y, bones.z);
 		}
@@ -388,29 +391,43 @@ void save_animation_data(Bone_Animation* animations, int num_animated_bones, Ani
 {
 	if (binary_name)
 	{
-		////TODO : IMPLEMENT
-		//FILE* write = fopen(binary_name, "wb");
-		//
-		//fwrite(&data.num_vertices, sizeof(int) , 1, write);
-		//fwrite(&data.num_indices , sizeof(int) , 1, write);
-		//fwrite(data.positions    , sizeof(vec3), data.num_vertices, write);
-		//fwrite(data.normals      , sizeof(vec3), data.num_vertices, write);
-		//fwrite(data.indices      , sizeof(int) , data.num_indices, write);
-		//
-		//fclose(write);
+		FILE* write = fopen(binary_name, "wb");
+
+		for (int i = 0; i < num_bones; i++)
+		{
+			mat4 transform = bones[i].inv_local_transform;
+			fwrite(&transform, sizeof(mat4), 1, write);
+		}
+		
+		int num_keyframes = 21; // WARNING HARDCODE
+		fwrite(&num_keyframes, sizeof(int) , 1, write);
+
+		for (int i = 0; i < num_bones; i++)
+		{
+			fwrite(animations[i].keyframes, sizeof(mat4), num_keyframes, write);
+		}
+		
+		fclose(write);
 	}
 
 	if (text_name)
 	{
 		FILE* write = fopen(text_name, "w");
 
-		fprintf(write, "number of animated bones: %d\n", num_animated_bones);
-
-		for (int i = 0; i < num_animated_bones; ++i)
+		fprintf(write, "inverse-bind matrices:");
+		for (int i = 0; i < num_bones; ++i)
 		{
-			fprintf(write, "\nname: %s\n", bones[i].name);
-			fprintf(write, "keyframes: %d\n", animations[i].num_keyframes);
-			fprintf(write, "framerate: %d\n", animations[i].framerate);
+			fprintf(write, "\n%d: %s\n", i, bones[i].name);
+			fprint_matrix(write, bones[i].inv_local_transform);
+		}
+
+		fprintf(write, "num keyframes: %d", num_animated_bones);
+
+		for (int i = 0; i < num_bones; ++i)
+		{
+			fprintf(write, "\n%d: %s\n", i, bones[i].name);
+			//fprintf(write, "keyframes: %d\n", animations[i].num_keyframes);
+			//fprintf(write, "framerate: %d\n", animations[i].framerate);
 
 			for (int j = 0; j < animations[i].num_keyframes; j++)
 			{
