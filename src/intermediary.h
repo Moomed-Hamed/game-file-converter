@@ -387,26 +387,31 @@ void fprint_matrix(FILE* write, mat4 matrix)
 	}
 }
 
-void save_animation_data(Bone_Animation* animations, int num_animated_bones, Anim_Bone* bones, int num_bones, const char* binary_name = NULL, const char* text_name = NULL)
+void save_animation_data(Bone_Animation* animations, Anim_Bone* bones, int num_bones, int num_keyframes, const char* binary_name = NULL, const char* text_name = NULL)
 {
 	if (binary_name)
 	{
 		FILE* write = fopen(binary_name, "wb");
 
+		// skeleton
+		fwrite(&num_bones, sizeof(int), 1, write);
 		for (int i = 0; i < num_bones; i++)
 		{
-			mat4 transform = bones[i].inv_local_transform;
-			fwrite(&transform, sizeof(mat4), 1, write);
+			fwrite(&(bones[i].parent_index), sizeof(int), 1, write);
+		}
+
+		for (int i = 0; i < num_bones; i++)
+		{
+			fwrite(&(bones[i].inv_local_transform), sizeof(mat4), 1, write);
 		}
 		
-		int num_keyframes = 21; // WARNING HARDCODE
 		fwrite(&num_keyframes, sizeof(int) , 1, write);
 
 		for (int i = 0; i < num_bones; i++)
 		{
 			fwrite(animations[i].keyframes, sizeof(mat4), num_keyframes, write);
 		}
-		
+
 		fclose(write);
 	}
 
@@ -414,6 +419,14 @@ void save_animation_data(Bone_Animation* animations, int num_animated_bones, Ani
 	{
 		FILE* write = fopen(text_name, "w");
 
+		// skeleton
+		fprintf(write, "num bones: %d\n", num_bones);
+		for (int i = 0; i < num_bones; ++i)
+		{
+			fprintf(write, "%d ", bones[i].parent_index);
+		}
+
+		// inverse-bind matrices
 		fprintf(write, "inverse-bind matrices:");
 		for (int i = 0; i < num_bones; ++i)
 		{
@@ -421,13 +434,11 @@ void save_animation_data(Bone_Animation* animations, int num_animated_bones, Ani
 			fprint_matrix(write, bones[i].inv_local_transform);
 		}
 
-		fprintf(write, "num keyframes: %d", num_animated_bones);
-
+		// keyframes
+		fprintf(write, "num keyframes: %d", 21);
 		for (int i = 0; i < num_bones; ++i)
 		{
 			fprintf(write, "\n%d: %s\n", i, bones[i].name);
-			//fprintf(write, "keyframes: %d\n", animations[i].num_keyframes);
-			//fprintf(write, "framerate: %d\n", animations[i].framerate);
 
 			for (int j = 0; j < animations[i].num_keyframes; j++)
 			{
@@ -501,7 +512,7 @@ struct File_Reader_Collada : File_Reader
 	{
 		while (read_ptr > start_ptr)
 		{
-			prev_line();
+			seek_char_previous('<');
 			char label[256] = {};
 			sscanf(read_ptr, " <%255[^> ]", label);
 			//print("%s ", label); Sleep(1000);
@@ -558,7 +569,7 @@ struct File_Reader_Collada : File_Reader
 			floats[i] = parse_float();
 		}
 
-		*num_floats = count;
+		if(num_floats) *num_floats = count;
 		return floats;
 	}
 	char** parse_name_array(int* num_names, int max_name_length = 64)

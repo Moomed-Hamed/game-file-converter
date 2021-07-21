@@ -83,7 +83,10 @@ void convert_collada_anim(const char* path, const char* binary_name, const char*
 		sscanf(file.read_ptr, "%*s %*s %*[a-z=\"] %d", &num_dae_faces);
 		num_dae_vertices = num_dae_faces * 3;
 
-		file.seek_tag("p"); file.prev_line(); file.prev_line();
+		// WARNING BUG : these seek_char()s used to be file.prev_line()s, but that was broken only
+		// for the file i exported from blender and not the example file. I'm not sure why
+		// this may warrant further investigation (there's another instance of this bug below)
+		file.seek_tag("p"); file.seek_char_previous('<'); file.seek_char_previous('<');
 
 		// there could be extra info packed in, (stride - 2) = how many values to skip per read
 		// we use the offset from the <input> tag before the <p> tag to figure out the stride
@@ -348,6 +351,7 @@ void convert_collada_anim(const char* path, const char* binary_name, const char*
 	for (int i = 0; i < num_bones; i++) animations[i] = {};
 
 	int num_animated_bones = 0;
+	int num_keyframes = -1;
 
 	// Library Animations : animation keyframes
 	{
@@ -366,9 +370,7 @@ void convert_collada_anim(const char* path, const char* binary_name, const char*
 
 			file.seek_tag_previous("animation");
 
-			int num_keyframes = -1;
-
-			float* times = file.parse_float_array(&num_keyframes);
+			float* times = file.parse_float_array(&num_keyframes); out(num_keyframes);
 			int framerate = (int)((float)1 / (times[1] - times[0]));
 			
 			free(times);
@@ -381,8 +383,8 @@ void convert_collada_anim(const char* path, const char* binary_name, const char*
 				{
 					found = true;
 					animations[i].framerate = framerate;
-					animations[i].keyframes = (mat4*)file.parse_float_array(&num_keyframes);
-					animations[i].num_keyframes = num_keyframes / 16;
+					animations[i].keyframes = (mat4*)file.parse_float_array(NULL); // BUG : incorrect frame count
+					//num_keyframes = num_keyframes / 16;
 					num_animated_bones++;
 					//print("%d : [%-12s] : %d keyframes at %dfps\n", i, name, num_keyframes / 16, framerate);
 				}
@@ -405,10 +407,13 @@ void convert_collada_anim(const char* path, const char* binary_name, const char*
 				animations[i].keyframes[j] = bones[i].local_transform;
 			}
 
-			animations[i].framerate = 24;
-			animations[i].num_keyframes = 21;
+			animations[i].framerate = 1;
+			animations[i].num_keyframes = 1;
 		}
 	}
+
+	int* parents = new int[num_bones];
+	for (int i = 0; i < num_bones; i++) parents[i] = bones[i].parent_index;
 
 	file.free_memory();
 
@@ -420,7 +425,7 @@ void convert_collada_anim(const char* path, const char* binary_name, const char*
 	free_mesh_data(&final_mesh);
 
 	// save the animation keyframes
-	save_animation_data(animations, num_animated_bones, bones, num_bones, "test.anim", "animations.txt");
+	save_animation_data(animations, bones, num_bones, num_keyframes, "test.anim", "animations.txt");
 
 	print("\nfinished converting '%s'\n", path);
 }
