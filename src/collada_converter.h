@@ -1,4 +1,3 @@
-#pragma once
 #include "intermediary.h"
 
 // NOTE : matrices in collada are row-major, so you probably need to transpose them
@@ -400,9 +399,9 @@ void convert_collada_anim(const char* path, const char* binary_name, const char*
 		{
 			print("%d, ", i);
 
-			animations[i].keyframes = new mat4[21];
+			animations[i].keyframes = new mat4[num_keyframes];
 
-			for (int j = 0; j < 21; j++)
+			for (int j = 0; j < num_keyframes; j++)
 			{
 				animations[i].keyframes[j] = bones[i].local_transform;
 			}

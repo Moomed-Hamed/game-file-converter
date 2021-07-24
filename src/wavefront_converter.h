@@ -1,4 +1,3 @@
-#pragma once
 #include "intermediary.h"
 
 // NOTE : these are little endian codes
