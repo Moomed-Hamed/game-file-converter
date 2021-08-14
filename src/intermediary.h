@@ -72,7 +72,18 @@ struct Mesh_Data_Anim
 	int*  indices;
 };
 
-Mesh_Data make_mesh_data(int num_positions, int num_normals, int num_vertices, vec3* positions, vec3* normals, ivec2* vertices)
+struct Mesh_Data_Anim_UV
+{
+	int num_vertices, num_indices;
+	vec3* positions;
+	vec3* normals;
+	vec2* textures;
+	vec3* weights;
+	ivec3* bone_ids;
+	int*  indices;
+};
+
+Mesh_Data make_mesh_data(int num_vertices, vec3* positions, vec3* normals, ivec2* vertices)
 {
 	int num_unique_vertices = 0; // vertex count of final mesh
 	int num_indices = num_vertices; // duplicate verts will be replaced using indices
@@ -124,7 +135,7 @@ Mesh_Data make_mesh_data(int num_positions, int num_normals, int num_vertices, v
 	ret.indices      = indices;
 	return ret;
 }
-Mesh_Data_UV make_mesh_data(int num_positions, int num_normals, int num_textures, int num_vertices, vec3* positions, vec3* normals, vec2* textures, ivec3* vertices)
+Mesh_Data_UV make_mesh_data(int num_vertices, vec3* positions, vec3* normals, vec2* textures, ivec3* vertices)
 {
 	int num_unique_vertices = 0; // vertex count of final mesh
 	int num_indices = num_vertices; // duplicate verts will be replaced using indices
@@ -179,7 +190,7 @@ Mesh_Data_UV make_mesh_data(int num_positions, int num_normals, int num_textures
 	ret.indices      = indices;
 	return ret;
 }
-Mesh_Data_Anim make_mesh_data(int num_positions, int num_normals, int num_vertices, vec3* positions, vec3* normals, vec3* weights, ivec3* bone_ids, ivec2* vertices)
+Mesh_Data_Anim make_mesh_data(int num_vertices, vec3* positions, vec3* normals, vec3* weights, ivec3* bone_ids, ivec2* vertices)
 {
 	int num_unique_vertices = 0;    // vertex count of final mesh
 	int num_indices = num_vertices; // duplicate verts will be replaced using indices
@@ -234,6 +245,70 @@ Mesh_Data_Anim make_mesh_data(int num_positions, int num_normals, int num_vertic
 	ret.num_indices  = num_indices;
 	ret.positions    = final_positions;
 	ret.normals      = final_normals;
+	ret.weights      = final_weights;
+	ret.bone_ids     = final_bone_ids;
+	ret.indices      = indices;
+	return ret;
+}
+Mesh_Data_Anim_UV make_mesh_data(int num_vertices, vec3* positions, vec3* normals, vec2* textures, vec3* weights, ivec3* bone_ids, ivec3* vertices)
+{
+	int num_unique_vertices = 0;    // vertex count of final mesh
+	int num_indices = num_vertices; // duplicate verts will be replaced using indices
+
+	int* indices = (int*)malloc(num_indices * sizeof(int));
+	ivec3* unique_vertices = vertices;
+
+	for (int i = 0; i < num_vertices; ++i)
+	{
+		ivec3 test_vertex = vertices[i];
+		if (test_vertex != ivec3{-1, -1, -1}) // else it has already been marked as duplicate
+		{
+			// mark all instances of test_vertex as duplicates
+			for (int j = 0; j < num_vertices; ++j)
+			{
+				if (vertices[j] == test_vertex)
+				{
+					vertices[j] = {-1, -1, -1}; // mark as duplicate
+
+					// if obj_vertices[j] got mapped to unique_vertices[x], then indices[j] has value x
+					indices[j] = num_unique_vertices;
+				}
+			}
+
+			// keep one copy
+			unique_vertices[num_unique_vertices++] = test_vertex;
+		}
+	}
+
+	// since weights & bone_ids apply to positions, they get mapped to the same vertices
+	vec3* final_positions = (vec3*) calloc(num_unique_vertices, sizeof(vec3));
+	vec3* final_normals   = (vec3*) calloc(num_unique_vertices, sizeof(vec3));
+	vec2* final_textures  = (vec2*) calloc(num_unique_vertices, sizeof(vec2));
+	vec3* final_weights   = (vec3*) calloc(num_unique_vertices, sizeof(vec3));
+	ivec3* final_bone_ids = (ivec3*)calloc(num_unique_vertices, sizeof(ivec3));
+
+	for (int i = 0; i < num_unique_vertices; ++i)
+	{
+		final_positions[i] = positions[unique_vertices[i].x];
+		final_weights[i]   = weights  [unique_vertices[i].x];
+		final_textures[i]  = textures [unique_vertices[i].z];
+		final_bone_ids[i]  = bone_ids [unique_vertices[i].x];
+		final_normals[i]   = normals  [unique_vertices[i].y];
+	}
+
+	free(positions);
+	free(normals);
+	free(textures);
+	free(weights); // hehe
+	free(bone_ids);
+	free(vertices);
+
+	Mesh_Data_Anim_UV ret = {};
+	ret.num_vertices = num_unique_vertices;
+	ret.num_indices  = num_indices;
+	ret.positions    = final_positions;
+	ret.normals      = final_normals;
+	ret.textures     = final_textures;
 	ret.weights      = final_weights;
 	ret.bone_ids     = final_bone_ids;
 	ret.indices      = indices;
@@ -348,6 +423,50 @@ void save_mesh_data(Mesh_Data_Anim data, const char* binary_name, const char* te
 			fprintf(write, "p %09f %09f %09f n %09f %09f %09f w %09f %09f %09f b %02d %02d %02d\n",
 				position.x, position.y, position.z, normal.x, normal.y, normal.z,
 				weight.x, weight.y, weight.z, bones.x, bones.y, bones.z);
+		}
+
+		for (int i = 0; i < data.num_indices; i += 3)
+		{
+			fprintf(write, "f %d %d %d\n", data.indices[i], data.indices[i + 1], data.indices[i + 2]);
+		}
+
+		fclose(write);
+	}
+}
+void save_mesh_data(Mesh_Data_Anim_UV data, const char* binary_name, const char* text_name)
+{
+	if (binary_name)
+	{
+		FILE* write = fopen(binary_name, "wb");
+		
+		fwrite(&data.num_vertices, sizeof(int)  , 1, write);
+		fwrite(&data.num_indices , sizeof(int)  , 1, write);
+		fwrite(data.positions    , sizeof(vec3) , data.num_vertices, write);
+		fwrite(data.normals      , sizeof(vec3) , data.num_vertices, write);
+		fwrite(data.weights      , sizeof(vec3) , data.num_vertices, write);
+		fwrite(data.bone_ids     , sizeof(ivec3), data.num_vertices, write);
+		fwrite(data.textures     , sizeof(vec2) , data.num_vertices, write);
+		fwrite(data.indices      , sizeof(int)  , data.num_indices , write);
+		
+		fclose(write);
+	}
+
+	if (text_name)
+	{
+		FILE* write = fopen(text_name, "w");
+
+		fprintf(write, "v: %d f: %d\n", data.num_vertices, data.num_indices / 3);
+
+		for (int i = 0; i < data.num_vertices; ++i)
+		{
+			vec3 position = data.positions[i];
+			vec3 normal   = data.normals[i];
+			vec2 texture  = data.textures[i];
+			vec3 weight   = data.weights[i];
+			ivec3 bones   = data.bone_ids[i];
+			fprintf(write, "p %09f %09f %09f n %09f %09f %09f w %09f %09f %09f b %02d %02d %02d t %09f %09f\n",
+				position.x, position.y, position.z, normal.x, normal.y, normal.z,
+				weight.x, weight.y, weight.z, bones.x, bones.y, bones.z, texture.x, texture.y);
 		}
 
 		for (int i = 0; i < data.num_indices; i += 3)
@@ -475,6 +594,16 @@ void free_mesh_data(Mesh_Data_Anim* data)
 	free(data->indices);
 	*data = {};
 }
+void free_mesh_data(Mesh_Data_Anim_UV* data)
+{
+	free(data->positions);
+	free(data->normals);
+	free(data->textures);
+	free(data->weights);
+	free(data->bone_ids);
+	free(data->indices);
+	*data = {};
+}
 
 struct File_Reader
 {
@@ -572,12 +701,12 @@ struct File_Reader_Collada : File_Reader
 		if(num_floats) *num_floats = count;
 		return floats;
 	}
-	char** parse_name_array(int* num_names, int max_name_length = 64)
+	char** parse_name_array(int* num_names, int max_name_length = 32)
 	{
 		seek_tag("Name_array");
 
 		int count = -1;
-		sscanf(read_ptr, "%*s %*s %*[a-z=\"] %d", &count);
+		sscanf(read_ptr, " %*[^0-9] %d", &count); //out(count);
 		seek_char('>');
 
 		char** names = (char**)calloc(count, sizeof(char*));
@@ -603,11 +732,11 @@ struct File_Reader_Collada : File_Reader
 			sscanf(read_ptr, " %[^<> \n]", temp_string); // read the tag name
 			//print("%s\n", temp_string);
 
-			if (strcmp(temp_string, "extra") == 0)
+			if (strcmp(temp_string, "/node") == 0)
 			{
 				num_extra_tags++;
 				next_line();
-				//print("[extra] ");
+				//print("[/node] ");
 			}
 
 			if (strcmp(temp_string, "node") == 0)

@@ -6,9 +6,12 @@ int main()
 {
 	//convert_wavefront("examples/cube.obj", NULL, "demo_cube_out.txt");
 	//convert_collada_anim("examples/character_running.dae", "test.mesh_anim", "demo_collada_out.txt");
-	convert_collada_anim("test.dae", "test.mesh_anim", "anim_mesh.txt");
+	//convert_collada_anim("test.dae", "enemy.mesh_anim", "anim_mesh.txt");
+	//convert_collada_anim("sniper.dae", "sniper.mesh_anim", "anim_mesh.txt", "sniper.anim");
+	convert_collada_anim_uv("pistoluv.dae", "pistol.mesh_anim", "anim_mesh.txt", "pistol.anim");
 
-	//convert_wavefront("plane.obj" , "plane.mesh_uv", NULL);
+	//convert_wavefront("b.obj" , "billboard.mesh_uv", NULL);
+	//convert_wav("orb_pickup.wav", "orb.audio");
 
 	//print_wav("test.wav");
 	//convert_wav("test.wav", "test.audio");

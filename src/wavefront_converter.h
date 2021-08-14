@@ -87,17 +87,13 @@ void convert_wavefront(const char* path, const char* binary_name, const char* te
 	
 	if (num_obj_textures > 0 && force_no_textures == false)
 	{
-		Mesh_Data_UV final_mesh = make_mesh_data(num_obj_positions, num_obj_normals, num_obj_textures, num_obj_vertices,
-			obj_positions, obj_normals, obj_textures,(ivec3*)obj_vertices);
-
+		Mesh_Data_UV final_mesh = make_mesh_data(num_obj_vertices, obj_positions, obj_normals, obj_textures,(ivec3*)obj_vertices);
 		save_mesh_data(final_mesh, binary_name, text_name);
 		free_mesh_data(&final_mesh);
 	}
 	else
 	{
-		Mesh_Data final_mesh = make_mesh_data(num_obj_positions, num_obj_normals, num_obj_vertices,
-			obj_positions, obj_normals, (ivec2*)obj_vertices);
-
+		Mesh_Data final_mesh = make_mesh_data(num_obj_vertices, obj_positions, obj_normals, (ivec2*)obj_vertices);
 		save_mesh_data(final_mesh, binary_name, text_name);
 		free_mesh_data(&final_mesh);
 	}
